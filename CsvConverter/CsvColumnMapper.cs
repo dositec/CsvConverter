@@ -353,7 +353,50 @@ namespace CsvConverter
                 return mapping.DefaultValue;
             }
 
+            if (!string.IsNullOrEmpty(mapping.Math))
+            {
+                value = ApplyMathOperation(value, mapping.Math);
+            }
+
             return value;
+        }
+
+        private string ApplyMathOperation(string value, string mathOperation)
+        {
+            if (string.IsNullOrWhiteSpace(value) || !double.TryParse(value, out double numValue))
+            {
+                return value;
+            }
+
+            var parts = mathOperation.Trim().Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 2)
+            {
+                return value;
+            }
+
+            var op = parts[0];
+            if (!double.TryParse(parts[1], out double operand))
+            {
+                return value;
+            }
+
+            try
+            {
+                double result = op switch
+                {
+                    "+" => numValue + operand,
+                    "-" => numValue - operand,
+                    "*" => numValue * operand,
+                    "/" => operand != 0 ? numValue / operand : numValue,
+                    _ => numValue
+                };
+
+                return result.ToString("G15");
+            }
+            catch
+            {
+                return value;
+            }
         }
 
         private int WriteDataWithGroupingAndExpansion(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token)
