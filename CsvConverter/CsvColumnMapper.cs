@@ -13,13 +13,16 @@ namespace CsvConverter
         private readonly ILogger<CsvColumnMapper> logger;
         private readonly string? groupColumnInput;
         private readonly string? defaultValuesColumnInput;
+        private readonly string? caption;
         private ColumnMapping? defaultValuesColumn;
         private int? groupColumnOutputIndex;
         
         public CsvColumnMapper(ILogger<CsvColumnMapper> logger, string configFile)
         {
             this.logger = logger;
-            columnMappings = LoadColumnMapping(configFile);
+            var config = LoadMappingConfig(configFile);
+            columnMappings = config?.Columns;
+            caption = config?.Caption;
             groupColumnInput = DetermineGroupColumn();
             defaultValuesColumn = DetermineDefaultValuesColumn();
             defaultValuesColumnInput = defaultValuesColumn?.Input;
@@ -206,32 +209,88 @@ namespace CsvConverter
             }
             logger.LogInformation("Headers written to the Excel file.");
 
+            var headerRowIndex = string.IsNullOrEmpty(caption) ? 1 : 2;
+            var maxOutputIndex = columnMappings.Max(c => c.OutputIndex);
+            if (!string.IsNullOrEmpty(caption))
+            {
+                var captionRange = worksheet.Range(1, 1, 1, maxOutputIndex);
+                captionRange.Merge();
+                captionRange.Value = caption;
+                captionRange.Style.Font.Bold = true;
+                captionRange.Style.Font.FontSize = 14;
+                captionRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                captionRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            }
+
+            foreach (var mapping in columnMappings)
+            {
+                var headerName = mapping.Output ?? mapping.OutputGroup ?? "Unknown";
+                worksheet.Cell(headerRowIndex, mapping.OutputIndex).Value = headerName;
+            }
+
+            int lastRowIndex;
             if (string.IsNullOrEmpty(groupColumnInput) && defaultValuesColumn == null)
             {
                 // No grouping or row expansion - write data as is
-                WriteDataWithoutGrouping(csvLines, csvColumnIndex, worksheet, token);
+                lastRowIndex = WriteDataWithoutGrouping(csvLines, csvColumnIndex, worksheet, headerRowIndex, token);
             }
             else
             {
                 // Group data and/or expand rows based on DefaultValues
-                WriteDataWithGroupingAndExpansion(csvLines, csvColumnIndex, worksheet, token);
+                lastRowIndex = WriteDataWithGroupingAndExpansion(csvLines, csvColumnIndex, worksheet, headerRowIndex, token);
             }
 
             logger.LogInformation("Data rows written to the Excel file.");
 
-            // Auto-fit columns and save
-            worksheet.Columns().AdjustToContents();
+            var tableRange = worksheet.Range(1, 1, lastRowIndex, maxOutputIndex);
+            tableRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            tableRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            tableRange.Style.Alignment.WrapText = true;
+            tableRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            tableRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+            worksheet.Row(headerRowIndex).Style.Font.Bold = true;
+
+            for (int col = 1; col <= maxOutputIndex; col++)
+            {
+                double maxLength = 0;
+                for (int row = 1; row <= lastRowIndex; row++)
+                {
+                    var cellValue = worksheet.Cell(row, col).GetString();
+                    if (string.IsNullOrEmpty(cellValue))
+                    {
+                        continue;
+                    }
+
+                    var length = cellValue.Length;
+                    if (length > maxLength)
+                    {
+                        maxLength = length;
+                    }
+                }
+
+                if (maxLength > 0)
+                {
+                    var width = Math.Min(Math.Max(maxLength + 2, 10), 60);
+                    worksheet.Column(col).Width = width;
+                }
+            }
+
+            worksheet.Rows(1, lastRowIndex).AdjustToContents();
+
             workbook.SaveAs(outputFile);
         }
 
-        private void WriteDataWithoutGrouping(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, CancellationToken token)
+        private int WriteDataWithoutGrouping(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token)
         {
-            if (columnMappings == null) return;
+            if (columnMappings == null) return headerRowIndex;
 
+            int lastRowIndex = headerRowIndex;
             for (int rowIndex = 1; rowIndex < csvLines.Length; rowIndex++)
             {
                 token.ThrowIfCancellationRequested();
                 var csvRow = csvLines[rowIndex].Split(';');
+                lastRowIndex = rowIndex + headerRowIndex;
 
                 foreach (var mapping in columnMappings)
                 {
@@ -239,10 +298,12 @@ namespace CsvConverter
                     {
                         var value = csvRow[csvIndex];
                         var processedValue = GetProcessedValue(value, mapping);
-                        worksheet.Cell(rowIndex + 1, mapping.OutputIndex).Value = processedValue;
+                        worksheet.Cell(lastRowIndex, mapping.OutputIndex).Value = processedValue;
                     }
                 }
             }
+
+            return lastRowIndex;
         }
 
         private string GetProcessedValue(string value, ColumnMapping mapping)
@@ -255,9 +316,9 @@ namespace CsvConverter
             return value;
         }
 
-        private void WriteDataWithGroupingAndExpansion(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, CancellationToken token)
+        private int WriteDataWithGroupingAndExpansion(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token)
         {
-            if (columnMappings == null) return;
+            if (columnMappings == null) return headerRowIndex;
 
             int? groupColumnCsvIndex = null;
             if (!string.IsNullOrEmpty(groupColumnInput))
@@ -265,7 +326,7 @@ namespace CsvConverter
                 if (!csvColumnIndex.TryGetValue(groupColumnInput, out int index))
                 {
                     logger.LogError($"Group column '{groupColumnInput}' not found in CSV");
-                    return;
+                    return headerRowIndex;
                 }
                 groupColumnCsvIndex = index;
             }
@@ -290,7 +351,7 @@ namespace CsvConverter
                 groupedRows[groupKey].Add((csvRow, expandCount));
             }
 
-            int outputRowIndex = 2;
+            int outputRowIndex = headerRowIndex + 1;
             var groupMergeRanges = new List<(int startRow, int endRow)>();
             var rowMergeRanges = new List<(int startRow, int endRow, int outputIndex)>();
 
@@ -379,9 +440,11 @@ namespace CsvConverter
 
                 logger.LogInformation($"Merged {groupMergeRanges.Count} cell ranges for group column");
             }
+
+            return Math.Max(headerRowIndex, outputRowIndex - 1);
         }
 
-        private List<ColumnMapping>? LoadColumnMapping(string yamlFilePath)
+        private MappingConfig? LoadMappingConfig(string yamlFilePath)
         {
             try
             {
@@ -398,7 +461,7 @@ namespace CsvConverter
                     return null;
                 }
 
-                return config.Columns;
+                return config;
             }
             catch (Exception ex)
             {

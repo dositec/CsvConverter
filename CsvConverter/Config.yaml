@@ -1,4 +1,5 @@
-﻿Columns:
+﻿Caption: "Заголовок отчёта"
+Columns:
   - Input: "некоторая задача"
     OutputIndex: 1
     Output: "Задача"
@@ -6,6 +7,7 @@
   - Input: "номер задачи"
     OutputIndex: 2
     Output: "Номер задачи"
+    DefaultValue: "-"
   - Input: "некоторый текст"
     OutputIndex: 3
     Output: "Текст"

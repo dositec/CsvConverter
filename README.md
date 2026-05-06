@@ -46,6 +46,7 @@ CsvConverter is a lightweight and flexible tool for converting CSV files to Exce
 The `Config.yaml` file specifies the column mapping from the CSV input to the Excel output.
 
 ```yaml
+Caption: "Report title"
 Columns:
   - Input: "CSV Column Name 1"
     OutputIndex: 1
