@@ -1,4 +1,9 @@
 ﻿Caption: "Заголовок отчёта"
+CaptionBackgroundColor: "#4472C4"
+HeaderBackgroundColor: "#D9E1F2"
+ZebraColors:
+  - "#F2F2F2"
+  - "#FFFFFF"
 Columns:
   - Input: "некоторая задача"
     OutputIndex: 1

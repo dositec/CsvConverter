@@ -47,6 +47,11 @@ The `Config.yaml` file specifies the column mapping from the CSV input to the Ex
 
 ```yaml
 Caption: "Report title"
+CaptionBackgroundColor: "#4472C4"
+HeaderBackgroundColor: "#D9E1F2"
+ZebraColors:
+  - "#F2F2F2"
+  - "#FFFFFF"
 Columns:
   - Input: "CSV Column Name 1"
     OutputIndex: 1

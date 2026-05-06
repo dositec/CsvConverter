@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using YamlDotNet.Serialization.NamingConventions;
 using YamlDotNet.Serialization;
 using System.Text.Json.Serialization;
+using System.Drawing;
 
 namespace CsvConverter
 {
@@ -14,6 +15,9 @@ namespace CsvConverter
         private readonly string? groupColumnInput;
         private readonly string? defaultValuesColumnInput;
         private readonly string? caption;
+        private readonly string? captionBackgroundColor;
+        private readonly string? headerBackgroundColor;
+        private readonly List<string> zebraColors;
         private ColumnMapping? defaultValuesColumn;
         private int? groupColumnOutputIndex;
         
@@ -23,6 +27,9 @@ namespace CsvConverter
             var config = LoadMappingConfig(configFile);
             columnMappings = config?.Columns;
             caption = config?.Caption;
+            captionBackgroundColor = config?.CaptionBackgroundColor ?? "#4472C4";
+            headerBackgroundColor = config?.HeaderBackgroundColor ?? "#D9E1F2";
+            zebraColors = config?.ZebraColors ?? new List<string> { "#F2F2F2", "#FFFFFF" };
             groupColumnInput = DetermineGroupColumn();
             defaultValuesColumn = DetermineDefaultValuesColumn();
             defaultValuesColumnInput = defaultValuesColumn?.Input;
@@ -218,8 +225,10 @@ namespace CsvConverter
                 captionRange.Value = caption;
                 captionRange.Style.Font.Bold = true;
                 captionRange.Style.Font.FontSize = 14;
+                captionRange.Style.Font.FontColor = XLColor.White;
                 captionRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 captionRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                captionRange.Style.Fill.BackgroundColor = ParseZebraColor(captionBackgroundColor);
             }
 
             foreach (var mapping in columnMappings)
@@ -250,6 +259,9 @@ namespace CsvConverter
             tableRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
 
             worksheet.Row(headerRowIndex).Style.Font.Bold = true;
+            var headerRange = worksheet.Range(headerRowIndex, 1, headerRowIndex, maxOutputIndex);
+            headerRange.Style.Fill.BackgroundColor = ParseZebraColor(headerBackgroundColor);
+            headerRange.Style.Font.FontColor = XLColor.Black;
 
             for (int col = 1; col <= maxOutputIndex; col++)
             {
@@ -277,6 +289,34 @@ namespace CsvConverter
             }
 
             worksheet.Rows(1, lastRowIndex).AdjustToContents();
+
+            var previousGroup = string.Empty;
+            var fillOn = false;
+            for (int row = headerRowIndex + 1; row <= lastRowIndex; row++)
+            {
+                var currentGroup = worksheet.Cell(row, 1).GetString();
+                if (string.IsNullOrEmpty(currentGroup))
+                {
+                    currentGroup = previousGroup;
+                }
+
+                if (!string.Equals(currentGroup, previousGroup, StringComparison.Ordinal))
+                {
+                    fillOn = !fillOn;
+                    previousGroup = currentGroup;
+                }
+
+                if (fillOn)
+                {
+                    worksheet.Range(row, 1, row, maxOutputIndex)
+                        .Style.Fill.BackgroundColor = ParseZebraColor(zebraColors[0]);
+                }
+                else
+                {
+                    worksheet.Range(row, 1, row, maxOutputIndex)
+                        .Style.Fill.BackgroundColor = ParseZebraColor(zebraColors.Count > 1 ? zebraColors[1] : "#FFFFFF");
+                }
+            }
 
             workbook.SaveAs(outputFile);
         }
@@ -468,6 +508,32 @@ namespace CsvConverter
                 logger.LogError($"Error loading YAML file: {ex.Message}");
                 return null;
             }
+        }
+
+        private XLColor ParseZebraColor(string color)
+        {
+            if (string.IsNullOrWhiteSpace(color))
+            {
+                return XLColor.NoColor;
+            }
+
+            color = color.Trim();
+            if (color.StartsWith("#"))
+            {
+                try
+                {
+                    var r = Convert.ToInt32(color.Substring(1, 2), 16);
+                    var g = Convert.ToInt32(color.Substring(3, 2), 16);
+                    var b = Convert.ToInt32(color.Substring(5, 2), 16);
+                    return XLColor.FromArgb(r, g, b);
+                }
+                catch
+                {
+                    return XLColor.NoColor;
+                }
+            }
+
+            return XLColor.FromName(color);
         }
     }
 }
