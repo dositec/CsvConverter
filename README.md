@@ -35,8 +35,8 @@ CsvConverter is a lightweight and flexible tool for converting CSV files to Exce
 ## Usage
 
 1. Launch the application by double-clicking the executable (`CsvConverter.exe`).
-2. Add CSV files to convert by selecting **File > Add Files**.
-3. Ensure the `Config.yaml` file is present in the application directory to define column mappings.
+2. Select a YAML configuration file using **File > Select Config** (default is `Config.yaml` in the application directory).
+3. Add CSV files to convert by selecting **File > Add Files**.
 4. Click the **Convert** button to start processing the files.
 5. Monitor progress using the built-in progress bar.
 6. View detailed logs for any errors or missing columns in the log section.
