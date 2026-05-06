@@ -9,16 +9,82 @@ namespace CsvConverter
     public class CsvColumnMapper
     {
         // Holds the column mapping loaded from YAML
-        private readonly Dictionary<string, (int ColumnIndex, string Header)>? columnMapping;
+        private List<ColumnMapping>? columnMappings;
         private readonly ILogger<CsvColumnMapper> logger;
+        private readonly string? groupColumnInput;
+        private readonly string? defaultValuesColumnInput;
+        private ColumnMapping? defaultValuesColumn;
+        private int? groupColumnOutputIndex;
+        
         public CsvColumnMapper(ILogger<CsvColumnMapper> logger, string configFile)
         {
             this.logger = logger;
-            columnMapping = LoadColumnMapping(configFile);
+            columnMappings = LoadColumnMapping(configFile);
+            groupColumnInput = DetermineGroupColumn();
+            defaultValuesColumn = DetermineDefaultValuesColumn();
+            defaultValuesColumnInput = defaultValuesColumn?.Input;
+            if (!string.IsNullOrEmpty(groupColumnInput))
+            {
+                ReorderColumnsForGrouping();
+            }
         }
+        
+        private string? DetermineGroupColumn()
+        {
+            if (columnMappings == null) return null;
+            
+            var groupColumns = columnMappings.Where(c => !string.IsNullOrEmpty(c.OutputGroup)).ToList();
+            
+            if (groupColumns.Count > 1)
+            {
+                logger.LogError("Only one column can have OutputGroup defined");
+                return null;
+            }
+            
+            return groupColumns.Count == 1 ? groupColumns[0].Input : null;
+        }
+
+        private ColumnMapping? DetermineDefaultValuesColumn()
+        {
+            if (columnMappings == null) return null;
+
+            var defaultColumns = columnMappings.Where(c => c.DefaultValues != null && c.DefaultValues.Count > 0).ToList();
+            if (defaultColumns.Count > 1)
+            {
+                logger.LogError("Only one column can have DefaultValues defined");
+                return null;
+            }
+
+            return defaultColumns.Count == 1 ? defaultColumns[0] : null;
+        }
+
+        private void ReorderColumnsForGrouping()
+        {
+            if (columnMappings == null || string.IsNullOrEmpty(groupColumnInput)) return;
+
+            // Find the group column and its original index
+            var groupColumn = columnMappings.FirstOrDefault(c => c.Input == groupColumnInput);
+            if (groupColumn == null) return;
+
+            groupColumnOutputIndex = 1;
+
+            // Move group column to position 1 and shift others
+            columnMappings.Remove(groupColumn);
+            groupColumn.OutputIndex = 1;
+            columnMappings.Insert(0, groupColumn);
+
+            // Renumber all other columns starting from 2
+            for (int i = 1; i < columnMappings.Count; i++)
+            {
+                columnMappings[i].OutputIndex = i + 1;
+            }
+
+            logger.LogInformation($"Reordered columns: GroupColumn '{groupColumnInput}' moved to position 1");
+        }
+        
         public async Task<bool> ConvertAsync(string inputFile, string outputFile, CancellationToken token)
         {
-            if (columnMapping == null)
+            if (columnMappings == null)
             {
                 logger.LogError("Column mapping is missing.");
                 return false;
@@ -88,18 +154,33 @@ namespace CsvConverter
 
         private bool ValidateColumnMappings(Dictionary<string, int> csvColumnIndex)
         {
-            if (columnMapping == null)
+            if (columnMappings == null)
             {
                 logger.LogError("Column mapping is missing.");
                 return false;
             }
 
-            var missingColumns = columnMapping.Keys.Where(key => !csvColumnIndex.ContainsKey(key)).ToList();
+            var missingColumns = columnMappings
+                .Where(c => c != defaultValuesColumn && !csvColumnIndex.ContainsKey(c.Input))
+                .Select(c => c.Input)
+                .ToList();
 
             if (missingColumns.Count != 0)
             {
                 logger.LogWarning($"Missing required columns in the CSV file: {string.Join(", ", missingColumns)}");
                 return true;
+            }
+
+            if (defaultValuesColumn != null && !string.IsNullOrEmpty(defaultValuesColumn.DefaultValue))
+            {
+                logger.LogError("Column with DefaultValues cannot also specify DefaultValue.");
+                return false;
+            }
+
+            if (defaultValuesColumn != null && !string.IsNullOrEmpty(groupColumnInput) && defaultValuesColumnInput == groupColumnInput)
+            {
+                logger.LogError("Column with DefaultValues cannot also be the OutputGroup column.");
+                return false;
             }
 
             logger.LogInformation("All required columns are present in the CSV file.");
@@ -108,7 +189,7 @@ namespace CsvConverter
 
         private void WriteToExcel(string[] csvLines, Dictionary<string, int> csvColumnIndex, string outputFile, CancellationToken token)
         {
-            if (columnMapping == null)
+            if (columnMappings == null)
             {
                 logger.LogError("Column mapping is missing.");
                 return;
@@ -118,26 +199,24 @@ namespace CsvConverter
             var worksheet = workbook.Worksheets.Add("Sheet1");
 
             // Write headers
-            foreach (var mapping in columnMapping)
+            foreach (var mapping in columnMappings)
             {
-                worksheet.Cell(1, mapping.Value.ColumnIndex).Value = mapping.Value.Header;
+                var headerName = mapping.Output ?? mapping.OutputGroup ?? "Unknown";
+                worksheet.Cell(1, mapping.OutputIndex).Value = headerName;
             }
             logger.LogInformation("Headers written to the Excel file.");
 
-            // Write data rows
-            for (int rowIndex = 1; rowIndex < csvLines.Length; rowIndex++)
+            if (string.IsNullOrEmpty(groupColumnInput) && defaultValuesColumn == null)
             {
-                token.ThrowIfCancellationRequested();
-                var csvRow = csvLines[rowIndex].Split(';');
-
-                foreach (var mapping in columnMapping)
-                {
-                    if (csvColumnIndex.TryGetValue(mapping.Key, out int csvIndex))
-                    {
-                        worksheet.Cell(rowIndex + 1, mapping.Value.ColumnIndex).Value = csvRow[csvIndex];
-                    }
-                }
+                // No grouping or row expansion - write data as is
+                WriteDataWithoutGrouping(csvLines, csvColumnIndex, worksheet, token);
             }
+            else
+            {
+                // Group data and/or expand rows based on DefaultValues
+                WriteDataWithGroupingAndExpansion(csvLines, csvColumnIndex, worksheet, token);
+            }
+
             logger.LogInformation("Data rows written to the Excel file.");
 
             // Auto-fit columns and save
@@ -145,24 +224,181 @@ namespace CsvConverter
             workbook.SaveAs(outputFile);
         }
 
-        private Dictionary<string, (int ColumnIndex, string Header)>? LoadColumnMapping(string yamlFilePath)
+        private void WriteDataWithoutGrouping(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, CancellationToken token)
+        {
+            if (columnMappings == null) return;
+
+            for (int rowIndex = 1; rowIndex < csvLines.Length; rowIndex++)
+            {
+                token.ThrowIfCancellationRequested();
+                var csvRow = csvLines[rowIndex].Split(';');
+
+                foreach (var mapping in columnMappings)
+                {
+                    if (csvColumnIndex.TryGetValue(mapping.Input, out int csvIndex))
+                    {
+                        var value = csvRow[csvIndex];
+                        var processedValue = GetProcessedValue(value, mapping);
+                        worksheet.Cell(rowIndex + 1, mapping.OutputIndex).Value = processedValue;
+                    }
+                }
+            }
+        }
+
+        private string GetProcessedValue(string value, ColumnMapping mapping)
+        {
+            if (string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(mapping.DefaultValue))
+            {
+                return mapping.DefaultValue;
+            }
+
+            return value;
+        }
+
+        private void WriteDataWithGroupingAndExpansion(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, CancellationToken token)
+        {
+            if (columnMappings == null) return;
+
+            int? groupColumnCsvIndex = null;
+            if (!string.IsNullOrEmpty(groupColumnInput))
+            {
+                if (!csvColumnIndex.TryGetValue(groupColumnInput, out int index))
+                {
+                    logger.LogError($"Group column '{groupColumnInput}' not found in CSV");
+                    return;
+                }
+                groupColumnCsvIndex = index;
+            }
+
+            // Parse all data rows into groups (if grouping) or flat order
+            var groupedRows = new Dictionary<string, List<(string[] CsvRow, int ExpandCount)>>();
+            var groupOrder = new List<string>();
+
+            for (int rowIndex = 1; rowIndex < csvLines.Length; rowIndex++)
+            {
+                token.ThrowIfCancellationRequested();
+                var csvRow = csvLines[rowIndex].Split(';');
+                var groupKey = groupColumnCsvIndex.HasValue ? csvRow[groupColumnCsvIndex.Value] : string.Empty;
+
+                if (!groupedRows.ContainsKey(groupKey))
+                {
+                    groupedRows[groupKey] = new List<(string[] CsvRow, int ExpandCount)>();
+                    groupOrder.Add(groupKey);
+                }
+
+                var expandCount = defaultValuesColumn != null ? defaultValuesColumn.DefaultValues!.Count : 1;
+                groupedRows[groupKey].Add((csvRow, expandCount));
+            }
+
+            int outputRowIndex = 2;
+            var groupMergeRanges = new List<(int startRow, int endRow)>();
+            var rowMergeRanges = new List<(int startRow, int endRow, int outputIndex)>();
+
+            foreach (var groupKey in groupOrder)
+            {
+                token.ThrowIfCancellationRequested();
+                var rows = groupedRows[groupKey];
+                int groupStartRow = outputRowIndex;
+
+                foreach (var (csvRow, expandCount) in rows)
+                {
+                    int rowStartRow = outputRowIndex;
+
+                    for (int partIndex = 0; partIndex < expandCount; partIndex++)
+                    {
+                        foreach (var mapping in columnMappings)
+                        {
+                            if (!string.IsNullOrEmpty(mapping.OutputGroup))
+                            {
+                                if (outputRowIndex == groupStartRow)
+                                {
+                                    worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = groupKey;
+                                }
+                            }
+                            else if (defaultValuesColumn != null && mapping.Input == defaultValuesColumn.Input)
+                            {
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = defaultValuesColumn.DefaultValues![partIndex];
+                            }
+                            else if (!csvColumnIndex.TryGetValue(mapping.Input, out int csvIndex))
+                            {
+                                continue;
+                            }
+                            else
+                            {
+                                var value = csvRow[csvIndex];
+                                var processedValue = GetProcessedValue(value, mapping);
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = processedValue;
+                            }
+                        }
+
+                        outputRowIndex++;
+                    }
+
+                    if (outputRowIndex - rowStartRow > 1)
+                    {
+                        foreach (var mapping in columnMappings)
+                        {
+                            if (defaultValuesColumn != null && mapping.Input == defaultValuesColumn.Input)
+                            {
+                                continue;
+                            }
+
+                            if (!string.IsNullOrEmpty(mapping.OutputGroup))
+                            {
+                                continue;
+                            }
+
+                            rowMergeRanges.Add((rowStartRow, outputRowIndex - 1, mapping.OutputIndex));
+                        }
+                    }
+                }
+
+                if (outputRowIndex - groupStartRow > 1 && groupColumnOutputIndex.HasValue)
+                {
+                    groupMergeRanges.Add((groupStartRow, outputRowIndex - 1));
+                }
+            }
+
+            foreach (var (startRow, endRow, outputIndex) in rowMergeRanges)
+            {
+                token.ThrowIfCancellationRequested();
+                var rangeToMerge = worksheet.Range(startRow, outputIndex, endRow, outputIndex);
+                rangeToMerge.Merge();
+            }
+
+            if (groupColumnOutputIndex.HasValue)
+            {
+                foreach (var (startRow, endRow) in groupMergeRanges)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var rangeToMerge = worksheet.Range(startRow, groupColumnOutputIndex.Value, endRow, groupColumnOutputIndex.Value);
+                    rangeToMerge.Merge();
+                    rangeToMerge.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    rangeToMerge.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                }
+
+                logger.LogInformation($"Merged {groupMergeRanges.Count} cell ranges for group column");
+            }
+        }
+
+        private List<ColumnMapping>? LoadColumnMapping(string yamlFilePath)
         {
             try
             {
                 var deserializer = new DeserializerBuilder()
-                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                    .WithNamingConvention(NullNamingConvention.Instance)
                     .Build();
-
+ 
+                logger.LogInformation($"Loading YAML configuration from {yamlFilePath}");
                 using var reader = new StreamReader(yamlFilePath);
                 var config = deserializer.Deserialize<MappingConfig>(reader);
-                var mapping = new Dictionary<string, (int ColumnIndex, string Header)>();
-
-                foreach (var column in config.Columns)
+                if (config == null)
                 {
-                    mapping[column.Input] = (column.OutputIndex, column.Output);
+                    logger.LogError("YAML configuration deserialized to null.");
+                    return null;
                 }
 
-                return mapping;
+                return config.Columns;
             }
             catch (Exception ex)
             {

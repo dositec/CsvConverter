@@ -1,7 +1,24 @@
-﻿columns:
-  - input: "csv column name 1"
-    outputIndex: 1
-    output: "xlsx column name 1"
-  - input: "csv column name 2"
-    outputIndex: 2
-    output: "xlsx column name 2"
+﻿Columns:
+  - Input: "некоторая задача"
+    OutputIndex: 1
+    Output: "Задача"
+    DefaultValue: "DEFAULT"
+  - Input: "номер задачи"
+    OutputIndex: 2
+    Output: "Номер задачи"
+  - Input: "некоторый текст"
+    OutputIndex: 3
+    Output: "Текст"
+    DefaultValue: "Empty"
+  - Input: "Имя"
+    OutputIndex: 4
+    OutputGroup: "Имя"
+  - Input: "Сплит"
+    OutputIndex: 5
+    Output: "Описание"
+    DefaultValues:
+      - "А:"
+      - "Б:"
+  - Input: "Время"
+    OutputIndex: 6
+    Output: "Время"
