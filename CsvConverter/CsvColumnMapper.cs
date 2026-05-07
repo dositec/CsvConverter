@@ -23,6 +23,8 @@ namespace CsvConverter
         private readonly List<string> zebraColors;
         private readonly List<DepersonalizationEntry> depersonalizationEntries;
         private readonly DepersonalizationConfig? depersonalizationConfig;
+        private readonly List<ReplacementEntry> replacementEntries;
+        private readonly ReplacementConfig? replacementConfig;
         private readonly string configDirectory;
         private ColumnMapping? defaultValuesColumn;
         private int? groupColumnOutputIndex;
@@ -38,8 +40,10 @@ namespace CsvConverter
             zebraColors = config?.ZebraColors ?? new List<string> { "#F2F2F2", "#FFFFFF" };
             csvDelimiter = DetermineCsvDelimiter(config?.CsvDelimiter);
             depersonalizationConfig = config?.Depersonalization;
+            replacementConfig = config?.Replacement;
             configDirectory = Path.GetDirectoryName(configFile) ?? string.Empty;
             depersonalizationEntries = LoadDepersonalizationEntries(depersonalizationFilePath);
+            replacementEntries = LoadReplacementEntries();
             groupColumnInput = DetermineGroupColumn();
             defaultValuesColumn = DetermineDefaultValuesColumn();
             defaultValuesColumnInput = defaultValuesColumn?.Input;
@@ -128,7 +132,20 @@ namespace CsvConverter
                 // Step 4: Convert CSV to XLSX
                 WriteToExcel(csvLines, csvColumnIndex, outputFile, token);
 
-                if (depersonalizationEntries.Any())
+                if (replacementEntries.Any())
+                {
+                    var replacedOutputFile = GetReplacementOutputFilePath(outputFile);
+                    WriteToExcel(csvLines, csvColumnIndex, replacedOutputFile, token, false, true);
+                    logger.LogInformation($"Replaced CSV file created at: {replacedOutputFile}");
+
+                    if (depersonalizationEntries.Any())
+                    {
+                        var depersonalizedOutputFile = GetDepersonalizedOutputFilePath(replacedOutputFile);
+                        WriteToExcel(csvLines, csvColumnIndex, depersonalizedOutputFile, token, true, true);
+                        logger.LogInformation($"Depersonalized CSV file created at: {depersonalizedOutputFile}");
+                    }
+                }
+                else if (depersonalizationEntries.Any())
                 {
                     var depersonalizedOutputFile = GetDepersonalizedOutputFilePath(outputFile);
                     WriteToExcel(csvLines, csvColumnIndex, depersonalizedOutputFile, token, true);
@@ -214,7 +231,7 @@ namespace CsvConverter
             return true;
         }
 
-        private void WriteToExcel(string[] csvLines, Dictionary<string, int> csvColumnIndex, string outputFile, CancellationToken token, bool depersonalize = false)
+        private void WriteToExcel(string[] csvLines, Dictionary<string, int> csvColumnIndex, string outputFile, CancellationToken token, bool depersonalize = false, bool applyReplacement = false)
         {
             if (columnMappings == null)
             {
@@ -258,12 +275,12 @@ namespace CsvConverter
             if (string.IsNullOrEmpty(groupColumnInput) && defaultValuesColumn == null)
             {
                 // No grouping or row expansion - write data as is
-                lastRowIndex = WriteDataWithoutGrouping(csvLines, csvColumnIndex, worksheet, headerRowIndex, token, depersonalize);
+                lastRowIndex = WriteDataWithoutGrouping(csvLines, csvColumnIndex, worksheet, headerRowIndex, token, depersonalize, applyReplacement);
             }
             else
             {
                 // Group data and/or expand rows based on DefaultValues
-                lastRowIndex = WriteDataWithGroupingAndExpansion(csvLines, csvColumnIndex, worksheet, headerRowIndex, token, depersonalize);
+                lastRowIndex = WriteDataWithGroupingAndExpansion(csvLines, csvColumnIndex, worksheet, headerRowIndex, token, depersonalize, applyReplacement);
             }
 
             logger.LogInformation("Data rows written to the Excel file.");
@@ -338,7 +355,7 @@ namespace CsvConverter
             workbook.SaveAs(outputFile);
         }
 
-        private int WriteDataWithoutGrouping(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token, bool depersonalize)
+        private int WriteDataWithoutGrouping(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token, bool depersonalize, bool applyReplacement)
         {
             if (columnMappings == null) return headerRowIndex;
 
@@ -370,6 +387,10 @@ namespace CsvConverter
                     if (depersonalize)
                     {
                         cellValue = ApplyDepersonalization(cellValue);
+                    }
+                    else if (applyReplacement)
+                    {
+                        cellValue = ApplyReplacement(cellValue);
                     }
 
                     worksheet.Cell(lastRowIndex, mapping.OutputIndex).Value = cellValue;
@@ -452,7 +473,7 @@ namespace CsvConverter
             }
         }
 
-        private int WriteDataWithGroupingAndExpansion(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token, bool depersonalize)
+        private int WriteDataWithGroupingAndExpansion(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token, bool depersonalize, bool applyReplacement)
         {
             if (columnMappings == null) return headerRowIndex;
 
@@ -509,14 +530,14 @@ namespace CsvConverter
                             {
                                 if (outputRowIndex == groupStartRow)
                                 {
-                                    var value = depersonalize ? ApplyDepersonalization(groupKey) : groupKey;
+                                var value = depersonalize ? ApplyDepersonalization(groupKey) : applyReplacement ? ApplyReplacement(groupKey) : groupKey;
                                     worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = value;
                                 }
                             }
                             else if (defaultValuesColumn != null && mapping == defaultValuesColumn)
                             {
                                 var value = defaultValuesColumn.DefaultValues![partIndex];
-                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(value) : value;
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(value) : applyReplacement ? ApplyReplacement(value) : value;
                             }
                             else if (string.IsNullOrEmpty(mapping.Input))
                             {
@@ -524,7 +545,7 @@ namespace CsvConverter
                                 var value = mapping.DefaultValues != null
                                     ? mapping.DefaultValues[partIndex % mapping.DefaultValues.Count]
                                     : mapping.DefaultValue ?? string.Empty;
-                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(value) : value;
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(value) : applyReplacement ? ApplyReplacement(value) : value;
                             }
                             else if (!csvColumnIndex.TryGetValue(mapping.Input, out int csvIndex))
                             {
@@ -534,7 +555,7 @@ namespace CsvConverter
                             {
                                 var value = csvRow[csvIndex];
                                 var processedValue = GetProcessedValue(value, mapping);
-                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(processedValue) : processedValue;
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(processedValue) : applyReplacement ? ApplyReplacement(processedValue) : processedValue;
                             }
                         }
 
@@ -643,6 +664,33 @@ namespace CsvConverter
             }
         }
 
+        private List<ReplacementEntry> LoadReplacementEntries()
+        {
+            var placeholderFile = GetReplacementPlaceholderFilePath();
+            if (string.IsNullOrEmpty(placeholderFile) || !File.Exists(placeholderFile))
+            {
+                logger.LogInformation("No replacement placeholder file loaded.");
+                return new List<ReplacementEntry>();
+            }
+
+            try
+            {
+                var deserializer = new DeserializerBuilder()
+                    .WithNamingConvention(NullNamingConvention.Instance)
+                    .Build();
+
+                logger.LogInformation($"Loading replacement placeholders from {placeholderFile}");
+                using var reader = new StreamReader(placeholderFile);
+                var file = deserializer.Deserialize<ReplacementFile>(reader);
+                return file?.Replacements ?? new List<ReplacementEntry>();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Failed to load replacement placeholders: {ex.Message}");
+                return new List<ReplacementEntry>();
+            }
+        }
+
         private string GetDepersonalizationPlaceholderFilePath(string? depersonalizationFilePath)
         {
             if (!string.IsNullOrEmpty(depersonalizationFilePath))
@@ -656,9 +704,24 @@ namespace CsvConverter
             return Path.Combine(configDirectory, placeholderFile);
         }
 
+        private string GetReplacementPlaceholderFilePath()
+        {
+            var placeholderFile = replacementConfig?.PlaceholderFile ?? "replacements.yaml";
+            return Path.Combine(configDirectory, placeholderFile);
+        }
+
         private string GetDepersonalizedOutputFilePath(string originalOutputFile)
         {
             var suffix = depersonalizationConfig?.OutputSuffix ?? "_depersonalized";
+            var directory = Path.GetDirectoryName(originalOutputFile) ?? string.Empty;
+            var fileName = Path.GetFileNameWithoutExtension(originalOutputFile);
+            var extension = Path.GetExtension(originalOutputFile);
+            return Path.Combine(directory, fileName + suffix + extension);
+        }
+
+        private string GetReplacementOutputFilePath(string originalOutputFile)
+        {
+            var suffix = replacementConfig?.OutputSuffix ?? "_replaced";
             var directory = Path.GetDirectoryName(originalOutputFile) ?? string.Empty;
             var fileName = Path.GetFileNameWithoutExtension(originalOutputFile);
             var extension = Path.GetExtension(originalOutputFile);
@@ -675,6 +738,36 @@ namespace CsvConverter
             var result = value;
 
             foreach (var replacement in depersonalizationEntries)
+            {
+                if (string.IsNullOrEmpty(replacement.Find))
+                {
+                    continue;
+                }
+
+                if (replacement.WholeWordMatch)
+                {
+                    var pattern = $"\\b{Regex.Escape(replacement.Find)}\\b";
+                    result = Regex.Replace(result, pattern, _ => replacement.Replace);
+                }
+                else
+                {
+                    result = result.Replace(replacement.Find, replacement.Replace, StringComparison.Ordinal);
+                }
+            }
+
+            return result;
+        }
+
+        private string ApplyReplacement(string value)
+        {
+            if (replacementEntries == null || !replacementEntries.Any() || string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            var result = value;
+
+            foreach (var replacement in replacementEntries)
             {
                 if (string.IsNullOrEmpty(replacement.Find))
                 {

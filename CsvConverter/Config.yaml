@@ -5,6 +5,9 @@ CsvDelimiter: ";"
 Depersonalization:
   PlaceholderFile: "depersonalization.yaml"
   OutputSuffix: "_depersonalized"
+Replacement:
+  PlaceholderFile: "replacements.yaml"
+  OutputSuffix: "_replaced"
 ZebraColors:
   - "#F2F2F2"
   - "#FFFFFF"
