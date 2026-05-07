@@ -20,13 +20,15 @@ Columns:
   - Input: "Имя"
     OutputIndex: 4
     OutputGroup: "Имя"
-  - Input: "Сплит"
-    OutputIndex: 5
+  - OutputIndex: 5
     Output: "Описание"
     DefaultValues:
-      - "А:"
-      - "Б:"
+      - "А1:"
+      - "Б1:"
   - Input: "Время"
     OutputIndex: 6
     Output: "Время"
     Math: "/ 2"
+  - OutputIndex: 8
+    Output: "Новая Колонка2"
+    DefaultValue: "--"

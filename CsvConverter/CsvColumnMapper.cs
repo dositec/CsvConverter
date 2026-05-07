@@ -171,7 +171,7 @@ namespace CsvConverter
             }
 
             var missingColumns = columnMappings
-                .Where(c => c != defaultValuesColumn && !csvColumnIndex.ContainsKey(c.Input))
+                .Where(c => !string.IsNullOrEmpty(c.Input) && c != defaultValuesColumn && !csvColumnIndex.ContainsKey(c.Input))
                 .Select(c => c.Input)
                 .ToList();
 
@@ -334,7 +334,13 @@ namespace CsvConverter
 
                 foreach (var mapping in columnMappings)
                 {
-                    if (csvColumnIndex.TryGetValue(mapping.Input, out int csvIndex))
+                    if (string.IsNullOrEmpty(mapping.Input))
+                    {
+                        // New column with fixed values
+                        var fixedValue = mapping.DefaultValue ?? mapping.DefaultValues?.FirstOrDefault() ?? "";
+                        worksheet.Cell(lastRowIndex, mapping.OutputIndex).Value = fixedValue;
+                    }
+                    else if (csvColumnIndex.TryGetValue(mapping.Input, out int csvIndex))
                     {
                         var value = csvRow[csvIndex];
                         var processedValue = GetProcessedValue(value, mapping);
@@ -459,9 +465,21 @@ namespace CsvConverter
                                     worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = groupKey;
                                 }
                             }
-                            else if (defaultValuesColumn != null && mapping.Input == defaultValuesColumn.Input)
+                            else if (defaultValuesColumn != null && mapping == defaultValuesColumn)
                             {
                                 worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = defaultValuesColumn.DefaultValues![partIndex];
+                            }
+                            else if (string.IsNullOrEmpty(mapping.Input))
+                            {
+                                // New column with fixed values
+                                if (mapping.DefaultValues != null)
+                                {
+                                    worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = mapping.DefaultValues[partIndex % mapping.DefaultValues.Count];
+                                }
+                                else
+                                {
+                                    worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = mapping.DefaultValue ?? "";
+                                }
                             }
                             else if (!csvColumnIndex.TryGetValue(mapping.Input, out int csvIndex))
                             {
@@ -482,7 +500,7 @@ namespace CsvConverter
                     {
                         foreach (var mapping in columnMappings)
                         {
-                            if (defaultValuesColumn != null && mapping.Input == defaultValuesColumn.Input)
+                            if (defaultValuesColumn != null && mapping == defaultValuesColumn)
                             {
                                 continue;
                             }

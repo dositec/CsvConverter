@@ -59,6 +59,15 @@ Columns:
   - Input: "CSV Column Name 2"
     OutputIndex: 2
     Output: "Excel Header 2"
+    Math: "/ 3600"
+  - OutputIndex: 3
+    Output: "New Column"
+    DefaultValues:
+      - "Fixed Value 1"
+      - "Fixed Value 2"
+  - OutputIndex: 4
+    Output: "Another New Column"
+    DefaultValue: "Static Value"
 ```
 
 Place this file in the same directory as the application executable.
