@@ -14,6 +14,7 @@ namespace CsvConverter
         private readonly ILogger<CsvColumnMapper> logger;
         private readonly string? groupColumnInput;
         private readonly string? defaultValuesColumnInput;
+        private readonly string csvDelimiter;
         private readonly string? caption;
         private readonly string? captionBackgroundColor;
         private readonly string? headerBackgroundColor;
@@ -30,6 +31,7 @@ namespace CsvConverter
             captionBackgroundColor = config?.CaptionBackgroundColor ?? "#4472C4";
             headerBackgroundColor = config?.HeaderBackgroundColor ?? "#D9E1F2";
             zebraColors = config?.ZebraColors ?? new List<string> { "#F2F2F2", "#FFFFFF" };
+            csvDelimiter = DetermineCsvDelimiter(config?.CsvDelimiter);
             groupColumnInput = DetermineGroupColumn();
             defaultValuesColumn = DetermineDefaultValuesColumn();
             defaultValuesColumnInput = defaultValuesColumn?.Input;
@@ -150,7 +152,7 @@ namespace CsvConverter
 
         private Dictionary<string, int>? ParseCsvHeaders(string headerRow)
         {
-            var csvHeaders = headerRow.Split(';');
+            var csvHeaders = headerRow.Split(new[] { csvDelimiter }, StringSplitOptions.None);
             logger.LogInformation($"Parsed {csvHeaders.Length} columns in the header row");
 
             var csvColumnIndex = new Dictionary<string, int>();
@@ -329,7 +331,7 @@ namespace CsvConverter
             for (int rowIndex = 1; rowIndex < csvLines.Length; rowIndex++)
             {
                 token.ThrowIfCancellationRequested();
-                var csvRow = csvLines[rowIndex].Split(';');
+                var csvRow = csvLines[rowIndex].Split(new[] { csvDelimiter }, StringSplitOptions.None);
                 lastRowIndex = rowIndex + headerRowIndex;
 
                 foreach (var mapping in columnMappings)
@@ -447,7 +449,7 @@ namespace CsvConverter
             for (int rowIndex = 1; rowIndex < csvLines.Length; rowIndex++)
             {
                 token.ThrowIfCancellationRequested();
-                var csvRow = csvLines[rowIndex].Split(';');
+                var csvRow = csvLines[rowIndex].Split(new[] { csvDelimiter }, StringSplitOptions.None);
                 var groupKey = groupColumnCsvIndex.HasValue ? csvRow[groupColumnCsvIndex.Value] : string.Empty;
 
                 if (!groupedRows.ContainsKey(groupKey))
@@ -589,6 +591,16 @@ namespace CsvConverter
                 logger.LogError($"Error loading YAML file: {ex.Message}");
                 return null;
             }
+        }
+
+        private string DetermineCsvDelimiter(string? delimiter)
+        {
+            if (string.IsNullOrEmpty(delimiter))
+            {
+                return ";";
+            }
+
+            return delimiter.Length == 1 ? delimiter : delimiter[0].ToString();
         }
 
         private XLColor ParseZebraColor(string color)

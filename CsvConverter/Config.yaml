@@ -1,6 +1,7 @@
 ﻿Caption: "Заголовок отчёта"
 CaptionBackgroundColor: "#4472C4"
 HeaderBackgroundColor: "#D9E1F2"
+CsvDelimiter: ";"
 ZebraColors:
   - "#F2F2F2"
   - "#FFFFFF"
