@@ -28,7 +28,7 @@ Columns:
   - Input: "Время"
     OutputIndex: 6
     Output: "Время"
-    Math: "/ 2"
+    MathRound: "/ 2"
   - OutputIndex: 8
     Output: "Новая Колонка2"
     DefaultValue: "--"

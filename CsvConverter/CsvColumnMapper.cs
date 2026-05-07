@@ -359,12 +359,32 @@ namespace CsvConverter
                 return mapping.DefaultValue;
             }
 
-            if (!string.IsNullOrEmpty(mapping.Math))
+            if (!string.IsNullOrEmpty(mapping.MathRound))
+            {
+                value = ApplyMathRoundOperation(value, mapping.MathRound);
+            }
+            else if (!string.IsNullOrEmpty(mapping.Math))
             {
                 value = ApplyMathOperation(value, mapping.Math);
             }
 
             return value;
+        }
+
+        private string ApplyMathRoundOperation(string value, string mathOperation)
+        {
+            if (string.IsNullOrWhiteSpace(value) || !double.TryParse(value, out double numValue))
+            {
+                return value;
+            }
+
+            var resultText = ApplyMathOperation(value, mathOperation);
+            if (string.IsNullOrWhiteSpace(resultText) || !double.TryParse(resultText, out double resultValue))
+            {
+                return value;
+            }
+
+            return Math.Ceiling(resultValue).ToString("G15");
         }
 
         private string ApplyMathOperation(string value, string mathOperation)
