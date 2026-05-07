@@ -283,5 +283,57 @@ namespace CsvConverter
         {
             cancellationTokenSource.Cancel();
         }
+
+        private async void button_Personalize_Click(object sender, EventArgs e)
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Filter = "Excel Files (*.xlsx)|*.xlsx|All Files (*.*)|*.*",
+                Title = "Select XLSX File for Personalization",
+                Multiselect = false
+            };
+
+            if (openFileDialog.ShowDialog() != DialogResult.OK)
+            {
+                return;
+            }
+
+            button_Personalize.Enabled = false;
+            toolStrip1.Enabled = false;
+            progressBar1.Value = 0;
+            progressBar1.Maximum = 1;
+            cancellationTokenSource = new CancellationTokenSource();
+
+            try
+            {
+                var selectedFile = openFileDialog.FileName;
+                var outputFile = janConverter.GetPersonalizedOutputFilePath(selectedFile);
+
+                bool success = await janConverter.PersonalizeAsync(selectedFile, outputFile, cancellationTokenSource.Token);
+
+                if (success)
+                {
+                    logger.LogInformation($"Personalized file created: {outputFile}");
+                }
+                else
+                {
+                    logger.LogError($"Failed to personalize file: {selectedFile}");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogInformation("Personalization was canceled by the user.");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"An unexpected error occurred during personalization: {ex.Message}");
+            }
+            finally
+            {
+                button_Personalize.Enabled = true;
+                toolStrip1.Enabled = true;
+                progressBar1.Value = 0;
+            }
+        }
     }
 }

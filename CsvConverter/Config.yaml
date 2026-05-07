@@ -8,6 +8,8 @@ Depersonalization:
 Replacement:
   PlaceholderFile: "replacements.yaml"
   OutputSuffix: "_replaced"
+Personalization:
+  OutputSuffix: "_personalized"
 ZebraColors:
   - "#F2F2F2"
   - "#FFFFFF"

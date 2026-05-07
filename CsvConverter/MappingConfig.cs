@@ -36,6 +36,11 @@
         public List<ReplacementEntry> Replacements { get; set; } = new List<ReplacementEntry>();
     }
 
+    public class PersonalizationConfig
+    {
+        public string? OutputSuffix { get; set; } = "_personalized";
+    }
+
     public class MappingConfig
     {
         public string? Caption { get; set; }
@@ -45,6 +50,7 @@
         public string? CsvDelimiter { get; set; }
         public DepersonalizationConfig? Depersonalization { get; set; }
         public ReplacementConfig? Replacement { get; set; }
+        public PersonalizationConfig? Personalization { get; set; }
         public List<ColumnMapping> Columns { get; set; } = new List<ColumnMapping>();
     }
 }

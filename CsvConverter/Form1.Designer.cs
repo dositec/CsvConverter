@@ -32,6 +32,7 @@
             groupBoxLog = new GroupBox();
             richTextBox_Log = new RichTextBox();
             groupBoxActions = new GroupBox();
+            button_Personalize = new Button();
             button_Cancel = new Button();
             button_Convert = new Button();
             groupBoxArchive = new GroupBox();
@@ -79,6 +80,7 @@
             // groupBoxActions
             // 
             groupBoxActions.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            groupBoxActions.Controls.Add(button_Personalize);
             groupBoxActions.Controls.Add(button_Cancel);
             groupBoxActions.Controls.Add(progressBar1);
             groupBoxActions.Controls.Add(button_Convert);
@@ -88,6 +90,16 @@
             groupBoxActions.TabIndex = 14;
             groupBoxActions.TabStop = false;
             groupBoxActions.Text = "Actions";
+            // 
+            // button_Personalize
+            // 
+            button_Personalize.Location = new Point(168, 23);
+            button_Personalize.Name = "button_Personalize";
+            button_Personalize.Size = new Size(75, 23);
+            button_Personalize.TabIndex = 11;
+            button_Personalize.Text = "Personalize";
+            button_Personalize.UseVisualStyleBackColor = true;
+            button_Personalize.Click += button_Personalize_Click;
             // 
             // button_Cancel
             // 
@@ -184,6 +196,7 @@
         private RichTextBox richTextBox_Log;
         private GroupBox groupBoxActions;
         private Button button_Convert;
+        private Button button_Personalize;
         private GroupBox groupBoxArchive;
         private ToolStrip toolStrip1;
         private ListView listView1;

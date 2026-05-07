@@ -25,6 +25,7 @@ namespace CsvConverter
         private readonly DepersonalizationConfig? depersonalizationConfig;
         private readonly List<ReplacementEntry> replacementEntries;
         private readonly ReplacementConfig? replacementConfig;
+        private readonly PersonalizationConfig? personalizationConfig;
         private readonly string configDirectory;
         private ColumnMapping? defaultValuesColumn;
         private int? groupColumnOutputIndex;
@@ -41,6 +42,7 @@ namespace CsvConverter
             csvDelimiter = DetermineCsvDelimiter(config?.CsvDelimiter);
             depersonalizationConfig = config?.Depersonalization;
             replacementConfig = config?.Replacement;
+            personalizationConfig = config?.Personalization;
             configDirectory = Path.GetDirectoryName(configFile) ?? string.Empty;
             depersonalizationEntries = LoadDepersonalizationEntries(depersonalizationFilePath);
             replacementEntries = LoadReplacementEntries();
@@ -165,6 +167,77 @@ namespace CsvConverter
                 logger.LogError($"Error processing file {inputFile}: {ex.Message}");
                 return false;
             }
+        }
+
+        public async Task<bool> PersonalizeAsync(string inputFile, string outputFile, CancellationToken token)
+        {
+            if (!depersonalizationEntries.Any())
+            {
+                logger.LogError("No depersonalization entries loaded for personalization.");
+                return false;
+            }
+
+            try
+            {
+                logger.LogInformation($"Starting personalization for file: {inputFile}");
+
+                using var workbook = new XLWorkbook(inputFile);
+                var worksheet = workbook.Worksheets.First();
+
+                // Apply reverse replacements
+                foreach (var row in worksheet.RowsUsed())
+                {
+                    foreach (var cell in row.CellsUsed())
+                    {
+                        if (cell.DataType == XLDataType.Text)
+                        {
+                            var originalValue = cell.GetString();
+                            var personalizedValue = ApplyPersonalization(originalValue);
+                            cell.Value = personalizedValue;
+                        }
+                    }
+                }
+
+                workbook.SaveAs(outputFile);
+                logger.LogInformation($"Personalized file saved to: {outputFile}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Error personalizing file {inputFile}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private string ApplyPersonalization(string value)
+        {
+            if (depersonalizationEntries == null || !depersonalizationEntries.Any() || string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            var result = value;
+
+            foreach (var replacement in depersonalizationEntries)
+            {
+                if (string.IsNullOrEmpty(replacement.Replace))
+                {
+                    continue;
+                }
+
+                // Reverse: replace the placeholder with the original
+                if (replacement.WholeWordMatch)
+                {
+                    var pattern = $"\\b{Regex.Escape(replacement.Replace)}\\b";
+                    result = Regex.Replace(result, pattern, _ => replacement.Find);
+                }
+                else
+                {
+                    result = result.Replace(replacement.Replace, replacement.Find, StringComparison.Ordinal);
+                }
+            }
+
+            return result;
         }
 
         private async Task<string[]?> ReadCsvFile(string inputFile, CancellationToken token)
@@ -722,6 +795,15 @@ namespace CsvConverter
         private string GetReplacementOutputFilePath(string originalOutputFile)
         {
             var suffix = replacementConfig?.OutputSuffix ?? "_replaced";
+            var directory = Path.GetDirectoryName(originalOutputFile) ?? string.Empty;
+            var fileName = Path.GetFileNameWithoutExtension(originalOutputFile);
+            var extension = Path.GetExtension(originalOutputFile);
+            return Path.Combine(directory, fileName + suffix + extension);
+        }
+
+        public string GetPersonalizedOutputFilePath(string originalOutputFile)
+        {
+            var suffix = personalizationConfig?.OutputSuffix ?? "_personalized";
             var directory = Path.GetDirectoryName(originalOutputFile) ?? string.Empty;
             var fileName = Path.GetFileNameWithoutExtension(originalOutputFile);
             var extension = Path.GetExtension(originalOutputFile);
