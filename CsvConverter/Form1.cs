@@ -17,6 +17,7 @@ namespace CsvConverter
     {
 
         private string yamlFilePath;
+        private string? depersonalizationFilePath;
         private readonly BindingList<WorkItem> workItems;
         private CsvColumnMapper janConverter;
         private readonly RichTextBoxLoggerFactory loggerFactory;
@@ -38,7 +39,7 @@ namespace CsvConverter
             workItems = new BindingList<WorkItem>();
             loggerFactory = new RichTextBoxLoggerFactory(richTextBox_Log);
             logger = loggerFactory.CreateLogger<Form1>();
-            janConverter = new CsvColumnMapper(loggerFactory.CreateLogger<CsvColumnMapper>(), yamlFilePath);
+            janConverter = new CsvColumnMapper(loggerFactory.CreateLogger<CsvColumnMapper>(), yamlFilePath, depersonalizationFilePath);
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -47,6 +48,7 @@ namespace CsvConverter
             toolStrip1.AddMenuItem("File/Clear").WithAction(workItems.Clear);
             toolStrip1.AddMenuItem("File/Add files").WithAction(SelectFiles);
             toolStrip1.AddMenuItem("File/Select Config").WithAction(SelectConfig);
+            toolStrip1.AddMenuItem("File/Select Depersonalization").WithAction(SelectDepersonalizationFile);
             toolStrip1.AddMenuItem("File/Exit").WithAction(Close);
 
             UpdateTitleWithConfigPath();
@@ -115,7 +117,30 @@ namespace CsvConverter
         {
             var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
             Text = $"Csv converter - Version {version} - Config: {yamlFilePath}";
+            if (!string.IsNullOrEmpty(depersonalizationFilePath))
+            {
+                Text += $" - Depersonalization: {depersonalizationFilePath}";
+            }
         }
+
+        private void SelectDepersonalizationFile()
+        {
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Filter = "YAML Files (*.yaml;*.yml)|*.yaml;*.yml|All Files (*.*)|*.*",
+                Title = "Select Depersonalization Placeholder File",
+                FileName = depersonalizationFilePath ?? "depersonalization.yaml"
+            };
+
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                depersonalizationFilePath = openFileDialog.FileName;
+                janConverter = new CsvColumnMapper(loggerFactory.CreateLogger<CsvColumnMapper>(), yamlFilePath, depersonalizationFilePath);
+                UpdateTitleWithConfigPath();
+                logger.LogInformation($"Depersonalization file changed to: {depersonalizationFilePath}");
+            }
+        }
+
 
         private string? LoadConfigPath()
         {

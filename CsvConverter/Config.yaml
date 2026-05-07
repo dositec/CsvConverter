@@ -2,6 +2,9 @@
 CaptionBackgroundColor: "#4472C4"
 HeaderBackgroundColor: "#D9E1F2"
 CsvDelimiter: ";"
+Depersonalization:
+  PlaceholderFile: "depersonalization.yaml"
+  OutputSuffix: "_depersonalized"
 ZebraColors:
   - "#F2F2F2"
   - "#FFFFFF"

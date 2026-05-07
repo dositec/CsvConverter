@@ -1,0 +1,7 @@
+Replacements:
+  - Find: "6Name1"
+    Replace: "TTTTTTTT"
+    WholeWordMatch: true
+  - Find: "Name1"
+    Replace: "GGGGGGGG"
+    WholeWordMatch: true
