@@ -457,13 +457,14 @@ namespace CsvConverter
                         continue;
                     }
 
+                    if (applyReplacement)
+                    {
+                        cellValue = ApplyReplacement(cellValue);
+                    }
+
                     if (depersonalize)
                     {
                         cellValue = ApplyDepersonalization(cellValue);
-                    }
-                    else if (applyReplacement)
-                    {
-                        cellValue = ApplyReplacement(cellValue);
                     }
 
                     worksheet.Cell(lastRowIndex, mapping.OutputIndex).Value = cellValue;
@@ -603,14 +604,30 @@ namespace CsvConverter
                             {
                                 if (outputRowIndex == groupStartRow)
                                 {
-                                var value = depersonalize ? ApplyDepersonalization(groupKey) : applyReplacement ? ApplyReplacement(groupKey) : groupKey;
+                                    var value = groupKey;
+                                    if (applyReplacement)
+                                    {
+                                        value = ApplyReplacement(value);
+                                    }
+                                    if (depersonalize)
+                                    {
+                                        value = ApplyDepersonalization(value);
+                                    }
                                     worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = value;
                                 }
                             }
                             else if (defaultValuesColumn != null && mapping == defaultValuesColumn)
                             {
                                 var value = defaultValuesColumn.DefaultValues![partIndex];
-                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(value) : applyReplacement ? ApplyReplacement(value) : value;
+                                if (applyReplacement)
+                                {
+                                    value = ApplyReplacement(value);
+                                }
+                                if (depersonalize)
+                                {
+                                    value = ApplyDepersonalization(value);
+                                }
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = value;
                             }
                             else if (string.IsNullOrEmpty(mapping.Input))
                             {
@@ -618,7 +635,15 @@ namespace CsvConverter
                                 var value = mapping.DefaultValues != null
                                     ? mapping.DefaultValues[partIndex % mapping.DefaultValues.Count]
                                     : mapping.DefaultValue ?? string.Empty;
-                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(value) : applyReplacement ? ApplyReplacement(value) : value;
+                                if (applyReplacement)
+                                {
+                                    value = ApplyReplacement(value);
+                                }
+                                if (depersonalize)
+                                {
+                                    value = ApplyDepersonalization(value);
+                                }
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = value;
                             }
                             else if (!csvColumnIndex.TryGetValue(mapping.Input, out int csvIndex))
                             {
@@ -628,7 +653,15 @@ namespace CsvConverter
                             {
                                 var value = csvRow[csvIndex];
                                 var processedValue = GetProcessedValue(value, mapping);
-                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = depersonalize ? ApplyDepersonalization(processedValue) : applyReplacement ? ApplyReplacement(processedValue) : processedValue;
+                                if (applyReplacement)
+                                {
+                                    processedValue = ApplyReplacement(processedValue);
+                                }
+                                if (depersonalize)
+                                {
+                                    processedValue = ApplyDepersonalization(processedValue);
+                                }
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = processedValue;
                             }
                         }
 
