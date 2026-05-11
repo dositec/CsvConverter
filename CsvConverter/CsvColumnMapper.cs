@@ -27,12 +27,14 @@ namespace CsvConverter
         private readonly ReplacementConfig? replacementConfig;
         private readonly PersonalizationConfig? personalizationConfig;
         private readonly string configDirectory;
+        private readonly string configFilePath;
         private ColumnMapping? defaultValuesColumn;
         private int? groupColumnOutputIndex;
         
         public CsvColumnMapper(ILogger<CsvColumnMapper> logger, string configFile, string? depersonalizationFilePath = null)
         {
             this.logger = logger;
+            configFilePath = configFile;
             var config = LoadMappingConfig(configFile);
             columnMappings = config?.Columns;
             caption = config?.Caption;
@@ -44,8 +46,16 @@ namespace CsvConverter
             replacementConfig = config?.Replacement;
             personalizationConfig = config?.Personalization;
             configDirectory = Path.GetDirectoryName(configFile) ?? string.Empty;
-            depersonalizationEntries = LoadDepersonalizationEntries(depersonalizationFilePath);
-            replacementEntries = LoadReplacementEntries();
+
+            var rootDepersonalizationEntries = config?.Depersonalization?.Replacements ?? new List<DepersonalizationEntry>();
+            var rootReplacementEntries = config?.Replacement?.Replacements ?? new List<ReplacementEntry>();
+
+            depersonalizationEntries = LoadDepersonalizationEntries(depersonalizationFilePath)
+                .Concat(rootDepersonalizationEntries)
+                .ToList();
+            replacementEntries = LoadReplacementEntries()
+                .Concat(rootReplacementEntries)
+                .ToList();
             groupColumnInput = DetermineGroupColumn();
             defaultValuesColumn = DetermineDefaultValuesColumn();
             defaultValuesColumnInput = defaultValuesColumn?.Input;
@@ -110,9 +120,10 @@ namespace CsvConverter
         
         public async Task<bool> ConvertAsync(string inputFile, string outputFile, CancellationToken token)
         {
-            if (columnMappings == null)
+            var mappingCount = columnMappings?.Count ?? 0;
+            if (columnMappings == null || mappingCount == 0)
             {
-                logger.LogError("Column mapping is missing.");
+                logger.LogError($"Column mapping is missing for config '{configFilePath}'. Loaded column count: {mappingCount}. Ensure the YAML file contains a valid 'Columns:' section.");
                 return false;
             }
 
@@ -723,8 +734,9 @@ namespace CsvConverter
             {
                 var deserializer = new DeserializerBuilder()
                     .WithNamingConvention(NullNamingConvention.Instance)
+                    .IgnoreUnmatchedProperties()
                     .Build();
- 
+
                 logger.LogInformation($"Loading YAML configuration from {yamlFilePath}");
                 using var reader = new StreamReader(yamlFilePath);
                 var config = deserializer.Deserialize<MappingConfig>(reader);
@@ -734,6 +746,7 @@ namespace CsvConverter
                     return null;
                 }
 
+                logger.LogInformation($"Loaded YAML configuration with {config.Columns?.Count ?? 0} columns from {yamlFilePath}");
                 return config;
             }
             catch (Exception ex)
@@ -746,9 +759,15 @@ namespace CsvConverter
         private List<DepersonalizationEntry> LoadDepersonalizationEntries(string? depersonalizationFilePath)
         {
             var placeholderFile = GetDepersonalizationPlaceholderFilePath(depersonalizationFilePath);
-            if (string.IsNullOrEmpty(placeholderFile) || !File.Exists(placeholderFile))
+            if (string.IsNullOrEmpty(placeholderFile))
             {
-                logger.LogInformation("No depersonalization placeholder file loaded.");
+                logger.LogInformation("No depersonalization placeholder file configured.");
+                return new List<DepersonalizationEntry>();
+            }
+
+            if (!File.Exists(placeholderFile))
+            {
+                logger.LogInformation($"Depersonalization placeholder file not found: {placeholderFile}");
                 return new List<DepersonalizationEntry>();
             }
 
@@ -773,9 +792,15 @@ namespace CsvConverter
         private List<ReplacementEntry> LoadReplacementEntries()
         {
             var placeholderFile = GetReplacementPlaceholderFilePath();
-            if (string.IsNullOrEmpty(placeholderFile) || !File.Exists(placeholderFile))
+            if (string.IsNullOrEmpty(placeholderFile))
             {
-                logger.LogInformation("No replacement placeholder file loaded.");
+                logger.LogInformation("No replacement placeholder file configured.");
+                return new List<ReplacementEntry>();
+            }
+
+            if (!File.Exists(placeholderFile))
+            {
+                logger.LogInformation($"Replacement placeholder file not found: {placeholderFile}");
                 return new List<ReplacementEntry>();
             }
 

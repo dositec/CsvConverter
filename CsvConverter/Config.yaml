@@ -5,14 +5,31 @@ CsvDelimiter: ";"
 Depersonalization:
   PlaceholderFile: "depersonalization.yaml"
   OutputSuffix: "_depersonalized"
+  Replacements:
+    - Find: "Ivan"
+      Replace: "Pedro"
+      WholeWordMatch: true
+    - Find: "Dmitry"
+      Replace: "Hans"
+      WholeWordMatch: true
 Replacement:
   PlaceholderFile: "replacements.yaml"
   OutputSuffix: "_replaced"
+  Replacements:
+    - Find: "задача"
+      Replace: "task N"
+      WholeWordMatch: false
+    - Find: "эта задача"
+      Replace: "задача"
+      WholeWordMatch: true
 Personalization:
   OutputSuffix: "_personalized"
 ZebraColors:
   - "#F2F2F2"
   - "#FFFFFF"
+AI:
+  - url: "http://localhost:11434"
+    name: "Ollama"
 Columns:
   - Input: "некоторая задача"
     OutputIndex: 1

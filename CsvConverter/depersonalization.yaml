@@ -1,7 +1,0 @@
-Replacements:
-  - Find: "Ivan"
-    Replace: "Pedro"
-    WholeWordMatch: true
-  - Find: "Dmitry"
-    Replace: "Hans"
-    WholeWordMatch: true

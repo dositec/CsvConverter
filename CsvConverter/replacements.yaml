@@ -1,7 +1,0 @@
-Replacements:
-  - Find: "задача"
-    Replace: "task N"
-    WholeWordMatch: false
-  - Find: "эта задача"
-    Replace: "задача"
-    WholeWordMatch: true

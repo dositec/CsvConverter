@@ -4,6 +4,7 @@
     {
         public string? PlaceholderFile { get; set; }
         public string? OutputSuffix { get; set; } = "_depersonalized";
+        public List<DepersonalizationEntry>? Replacements { get; set; }
     }
 
     public class DepersonalizationEntry
@@ -22,6 +23,7 @@
     {
         public string? PlaceholderFile { get; set; }
         public string? OutputSuffix { get; set; } = "_replaced";
+        public List<ReplacementEntry>? Replacements { get; set; }
     }
 
     public class ReplacementEntry
