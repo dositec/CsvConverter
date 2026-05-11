@@ -95,7 +95,7 @@
             // 
             button_Personalize.Location = new Point(168, 23);
             button_Personalize.Name = "button_Personalize";
-            button_Personalize.Size = new Size(75, 23);
+            button_Personalize.Size = new Size(90, 23);
             button_Personalize.TabIndex = 11;
             button_Personalize.Text = "Personalize";
             button_Personalize.UseVisualStyleBackColor = true;

@@ -17,7 +17,7 @@ Columns:
   - Input: "некоторая задача"
     OutputIndex: 1
     Output: "Задача"
-    DefaultValue: "DEFAULT"
+    DefaultValue: "DEFAULT Task"
   - Input: "номер задачи"
     OutputIndex: 2
     Output: "Номер задачи"
@@ -32,12 +32,5 @@ Columns:
   - OutputIndex: 5
     Output: "Описание"
     DefaultValues:
-      - "А1:"
-      - "Б1:"
-  - Input: "Время"
-    OutputIndex: 6
-    Output: "Время"
-    MathRound: "/ 2"
-  - OutputIndex: 8
-    Output: "Новая Колонка2"
-    DefaultValue: "--"
+      - "Часть 1:"
+      - "Часть 2:"

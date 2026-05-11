@@ -1,7 +1,7 @@
 Replacements:
-  - Find: "6Name1"
-    Replace: "TTTTTTTT"
+  - Find: "Ivan"
+    Replace: "Pedro"
     WholeWordMatch: true
-  - Find: "Name1"
-    Replace: "GGGGGGGG"
+  - Find: "Dmitry"
+    Replace: "Hans"
     WholeWordMatch: true
