@@ -40,12 +40,15 @@ namespace CsvConverter
             loggerFactory = new RichTextBoxLoggerFactory(richTextBox_Log);
             logger = loggerFactory.CreateLogger<Form1>();
             janConverter = new CsvColumnMapper(loggerFactory.CreateLogger<CsvColumnMapper>(), yamlFilePath, depersonalizationFilePath);
+            
+            // Start AI provider initialization asynchronously
+            janConverter.StartInitializeAIProviderAsync(CancellationToken.None);
         }
 
         private void Form1_Load(object sender, EventArgs e)
         {
             // Load the column mapping from the YAML file
-            toolStrip1.AddMenuItem("File/Clear").WithAction(workItems.Clear);
+            toolStrip1.AddMenuItem("File/Clear").WithAction(ClearAll);
             toolStrip1.AddMenuItem("File/Add files").WithAction(SelectFiles);
             toolStrip1.AddMenuItem("File/Select Config").WithAction(SelectConfig);
             toolStrip1.AddMenuItem("File/Select Depersonalization").WithAction(SelectDepersonalizationFile);
@@ -108,6 +111,7 @@ namespace CsvConverter
                 yamlFilePath = openFileDialog.FileName;
                 SaveConfigPath(yamlFilePath);
                 janConverter = new CsvColumnMapper(loggerFactory.CreateLogger<CsvColumnMapper>(), yamlFilePath);
+                janConverter.StartInitializeAIProviderAsync(CancellationToken.None);
                 UpdateTitleWithConfigPath();
                 logger.LogInformation($"Config file changed to: {yamlFilePath}");
             }
@@ -136,6 +140,7 @@ namespace CsvConverter
             {
                 depersonalizationFilePath = openFileDialog.FileName;
                 janConverter = new CsvColumnMapper(loggerFactory.CreateLogger<CsvColumnMapper>(), yamlFilePath, depersonalizationFilePath);
+                janConverter.StartInitializeAIProviderAsync(CancellationToken.None);
                 UpdateTitleWithConfigPath();
                 logger.LogInformation($"Depersonalization file changed to: {depersonalizationFilePath}");
             }
@@ -334,6 +339,33 @@ namespace CsvConverter
                 toolStrip1.Enabled = true;
                 progressBar1.Value = 0;
             }
+        }
+
+        private void ClearAll()
+        {
+            // Clear work items
+            workItems.Clear();
+            
+            // Clear log text box
+            richTextBox_Log.Clear();
+            
+            // Clear AI provider log file
+            try
+            {
+                var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CsvConverter", "logs");
+                var logFile = Path.Combine(logDir, "ai-provider.log");
+                if (File.Exists(logFile))
+                {
+                    File.Delete(logFile);
+                    logger.LogInformation("AI provider log file cleared.");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"Failed to clear AI provider log file: {ex.Message}");
+            }
+            
+            logger.LogInformation("All logs and work items cleared.");
         }
     }
 }

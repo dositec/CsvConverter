@@ -1,4 +1,4 @@
-﻿Caption: "Заголовок отчёта"
+Caption: "Заголовок отчёта"
 CaptionBackgroundColor: "#4472C4"
 HeaderBackgroundColor: "#D9E1F2"
 CsvDelimiter: ";"
@@ -28,8 +28,10 @@ ZebraColors:
   - "#F2F2F2"
   - "#FFFFFF"
 AI:
-  - url: "http://localhost:11434"
-    name: "Ollama"
+  - Url: "http://localhost:11434"
+    Name: "Ollama"
+    Model: "llama3.2-vision:11b"
+    TimeoutSeconds: 520
 Columns:
   - Input: "некоторая задача"
     OutputIndex: 1
@@ -48,6 +50,6 @@ Columns:
     OutputGroup: "Имя"
   - OutputIndex: 5
     Output: "Описание"
-    DefaultValues:
-      - "Часть 1:"
-      - "Часть 2:"
+    AIValues:
+      - "Дай постановку из Текст"
+      - "Дай постановку для Текст"

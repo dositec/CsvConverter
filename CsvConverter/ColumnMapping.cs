@@ -8,6 +8,7 @@
         public string? OutputGroup { get; set; }
         public string? DefaultValue { get; set; }
         public List<string>? DefaultValues { get; set; }
+        public List<string>? AIValues { get; set; }
         public string? Math { get; set; }
         public string? MathRound { get; set; }
     }

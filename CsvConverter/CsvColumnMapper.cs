@@ -16,6 +16,7 @@ namespace CsvConverter
         private readonly ILogger<CsvColumnMapper> logger;
         private readonly string? groupColumnInput;
         private readonly string? defaultValuesColumnInput;
+        private readonly string? aiValuesColumnInput;
         private readonly string csvDelimiter;
         private readonly string? caption;
         private readonly string? captionBackgroundColor;
@@ -26,9 +27,13 @@ namespace CsvConverter
         private readonly List<ReplacementEntry> replacementEntries;
         private readonly ReplacementConfig? replacementConfig;
         private readonly PersonalizationConfig? personalizationConfig;
+        private IAIProvider? aiProvider;
         private readonly string configDirectory;
         private readonly string configFilePath;
+        private readonly AIConfig? aiConfig;
+        private Task? aiProviderInitializationTask;
         private ColumnMapping? defaultValuesColumn;
+        private ColumnMapping? aiValuesColumn;
         private int? groupColumnOutputIndex;
         
         public CsvColumnMapper(ILogger<CsvColumnMapper> logger, string configFile, string? depersonalizationFilePath = null)
@@ -36,6 +41,7 @@ namespace CsvConverter
             this.logger = logger;
             configFilePath = configFile;
             var config = LoadMappingConfig(configFile);
+            logger.LogError($"Config loaded: {(config != null ? "not null" : "null")}, Columns count: {config?.Columns?.Count ?? 0}, AI count: {config?.AI?.Count ?? 0}");
             columnMappings = config?.Columns;
             caption = config?.Caption;
             captionBackgroundColor = config?.CaptionBackgroundColor ?? "#4472C4";
@@ -45,6 +51,16 @@ namespace CsvConverter
             depersonalizationConfig = config?.Depersonalization;
             replacementConfig = config?.Replacement;
             personalizationConfig = config?.Personalization;
+            aiConfig = config?.AI?.FirstOrDefault();
+            if (aiConfig != null)
+            {
+                logger.LogError($"AI config loaded in constructor: Name='{aiConfig.Name}', URL='{aiConfig.Url}', Model='{aiConfig.Model}'");
+            }
+            else
+            {
+                logger.LogError("No AI config found in configuration file in constructor.");
+            }
+            aiProvider = null; // Will be initialized asynchronously via InitializeAIProviderAsync
             configDirectory = Path.GetDirectoryName(configFile) ?? string.Empty;
 
             var rootDepersonalizationEntries = config?.Depersonalization?.Replacements ?? new List<DepersonalizationEntry>();
@@ -59,9 +75,74 @@ namespace CsvConverter
             groupColumnInput = DetermineGroupColumn();
             defaultValuesColumn = DetermineDefaultValuesColumn();
             defaultValuesColumnInput = defaultValuesColumn?.Input;
+            aiValuesColumn = DetermineAIValuesColumn();
+            aiValuesColumnInput = aiValuesColumn?.Input;
             if (!string.IsNullOrEmpty(groupColumnInput))
             {
                 ReorderColumnsForGrouping();
+            }
+        }
+
+        public void StartInitializeAIProviderAsync(CancellationToken token = default)
+        {
+            if (aiProviderInitializationTask != null)
+            {
+                logger.LogInformation("AI provider initialization already in progress.");
+                return; // Already initialized or in progress
+            }
+                
+            logger.LogInformation("Starting AI provider initialization...");
+            aiProviderInitializationTask = InitializeAIProviderInternalAsync(token);
+        }
+
+        private async Task InitializeAIProviderInternalAsync(CancellationToken token)
+        {
+            if (aiConfig != null)
+            {
+                logger.LogInformation($"Initializing AI provider with config: Name='{aiConfig.Name}', URL='{aiConfig.Url}', Model='{aiConfig.Model}'");
+                try
+                {
+                    aiProvider = await AIProviderFactory.CreateProviderAsync(aiConfig, token);
+                    if (aiProvider == null)
+                    {
+                        logger.LogWarning($"AI configuration is present but AIProvider could not be created. Check if Ollama service is running and accessible at {aiConfig?.Url}. Verify the model '{aiConfig?.Model}' exists in Ollama.");
+                    }
+                    else
+                    {
+                        logger.LogError("AIProvider initialized successfully");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError($"Error initializing AIProvider: {ex.Message}");
+                }
+            }
+            else
+            {
+                logger.LogWarning("AI config is null. AI provider will not be initialized.");
+            }
+        }
+
+        private async Task EnsureAIProviderInitializedAsync(CancellationToken token)
+        {
+            if (aiProviderInitializationTask != null)
+            {
+                logger.LogInformation("Waiting for AI provider initialization to complete...");
+                try
+                {
+                    await aiProviderInitializationTask;
+                    logger.LogInformation("AI provider initialization task completed.");
+                    logger.LogError($"AI provider state after initialization: {(aiProvider != null ? "Initialized" : "NULL")}");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError($"AI provider initialization task failed: {ex.Message}");
+                    // Error already logged in InitializeAIProviderInternalAsync
+                }
+            }
+            else
+            {
+                logger.LogWarning("AI provider initialization task is null. AI provider may not have been started.");
             }
         }
         
@@ -92,6 +173,20 @@ namespace CsvConverter
             }
 
             return defaultColumns.Count == 1 ? defaultColumns[0] : null;
+        }
+
+        private ColumnMapping? DetermineAIValuesColumn()
+        {
+            if (columnMappings == null) return null;
+
+            var aiColumns = columnMappings.Where(c => c.AIValues != null && c.AIValues.Count > 0).ToList();
+            if (aiColumns.Count > 1)
+            {
+                logger.LogError("Only one column can have AIValues defined");
+                return null;
+            }
+
+            return aiColumns.Count == 1 ? aiColumns[0] : null;
         }
 
         private void ReorderColumnsForGrouping()
@@ -127,6 +222,12 @@ namespace CsvConverter
                 return false;
             }
 
+            // Ensure AI provider is initialized if needed
+            if (aiValuesColumn != null)
+            {
+                await EnsureAIProviderInitializedAsync(token);
+            }
+
             try
             {
                 logger.LogInformation($"Starting conversion for file: {inputFile}");
@@ -143,25 +244,25 @@ namespace CsvConverter
                 if (!ValidateColumnMappings(csvColumnIndex)) return false;
 
                 // Step 4: Convert CSV to XLSX
-                WriteToExcel(csvLines, csvColumnIndex, outputFile, token);
+                await WriteToExcel(csvLines, csvColumnIndex, outputFile, token);
 
                 if (replacementEntries.Any())
                 {
                     var replacedOutputFile = GetReplacementOutputFilePath(outputFile);
-                    WriteToExcel(csvLines, csvColumnIndex, replacedOutputFile, token, false, true);
+                    await WriteToExcel(csvLines, csvColumnIndex, replacedOutputFile, token, false, true);
                     logger.LogInformation($"Replaced CSV file created at: {replacedOutputFile}");
 
                     if (depersonalizationEntries.Any())
                     {
                         var depersonalizedOutputFile = GetDepersonalizedOutputFilePath(replacedOutputFile);
-                        WriteToExcel(csvLines, csvColumnIndex, depersonalizedOutputFile, token, true, true);
+                        await WriteToExcel(csvLines, csvColumnIndex, depersonalizedOutputFile, token, true, true);
                         logger.LogInformation($"Depersonalized CSV file created at: {depersonalizedOutputFile}");
                     }
                 }
                 else if (depersonalizationEntries.Any())
                 {
                     var depersonalizedOutputFile = GetDepersonalizedOutputFilePath(outputFile);
-                    WriteToExcel(csvLines, csvColumnIndex, depersonalizedOutputFile, token, true);
+                    await WriteToExcel(csvLines, csvColumnIndex, depersonalizedOutputFile, token, true);
                     logger.LogInformation($"Depersonalized CSV file created at: {depersonalizedOutputFile}");
                 }
 
@@ -289,7 +390,7 @@ namespace CsvConverter
             }
 
             var missingColumns = columnMappings
-                .Where(c => !string.IsNullOrEmpty(c.Input) && c != defaultValuesColumn && !csvColumnIndex.ContainsKey(c.Input))
+                .Where(c => !string.IsNullOrEmpty(c.Input) && c != defaultValuesColumn && c != aiValuesColumn && !csvColumnIndex.ContainsKey(c.Input))
                 .Select(c => c.Input)
                 .ToList();
 
@@ -305,22 +406,66 @@ namespace CsvConverter
                 return false;
             }
 
+            if (aiValuesColumn != null && !string.IsNullOrEmpty(aiValuesColumn.DefaultValue))
+            {
+                logger.LogError("Column with AIValues cannot also specify DefaultValue.");
+                return false;
+            }
+
+            if (defaultValuesColumn != null && aiValuesColumn != null)
+            {
+                logger.LogError("Cannot have both DefaultValues and AIValues columns.");
+                return false;
+            }
+
             if (defaultValuesColumn != null && !string.IsNullOrEmpty(groupColumnInput) && defaultValuesColumnInput == groupColumnInput)
             {
                 logger.LogError("Column with DefaultValues cannot also be the OutputGroup column.");
                 return false;
             }
 
+            if (aiValuesColumn != null && !string.IsNullOrEmpty(groupColumnInput) && aiValuesColumnInput == groupColumnInput)
+            {
+                logger.LogError("Column with AIValues cannot also be the OutputGroup column.");
+                return false;
+            }
+
+            if (aiValuesColumn != null && aiProvider == null)
+            {
+                logger.LogWarning("AIValues column is configured but AI provider is not available. Conversion will continue using prompt text instead of AI-generated content. Make sure Ollama is running and configured correctly in Config.yaml. Check that the model specified in Config.yaml exists in Ollama (available models: llama3.2-vision:11b, qwen3.6:35b-a3b-q4_K_M, jeffh/intfloat-multilingual-e5-large:q8_0, qwen3-coder:30b).");
+                // Continue conversion with fallback (prompt text will be used instead of AI-generated content)
+            }
+
             logger.LogInformation("All required columns are present in the CSV file.");
             return true;
         }
 
-        private void WriteToExcel(string[] csvLines, Dictionary<string, int> csvColumnIndex, string outputFile, CancellationToken token, bool depersonalize = false, bool applyReplacement = false)
+        private async Task WriteToExcel(string[] csvLines, Dictionary<string, int> csvColumnIndex, string outputFile, CancellationToken token, bool depersonalize = false, bool applyReplacement = false)
         {
             if (columnMappings == null)
             {
                 logger.LogError("Column mapping is missing.");
                 return;
+            }
+
+            // Set AI provider log directory to the same folder as the output file
+            var outputDir = Path.GetDirectoryName(outputFile);
+            if (string.IsNullOrEmpty(outputDir))
+            {
+                outputDir = Directory.GetCurrentDirectory();
+                logger.LogInformation($"Output file has no directory, using current directory: {outputDir}");
+            }
+            
+            // Ensure directory exists
+            try
+            {
+                Directory.CreateDirectory(outputDir);
+                AIProviderFactory.LogDirectory = outputDir;
+                logger.LogInformation($"AI provider logs will be written to: {outputDir}");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"Failed to set AI log directory to {outputDir}: {ex.Message}. Using default location.");
             }
 
             using var workbook = new XLWorkbook();
@@ -356,15 +501,15 @@ namespace CsvConverter
             }
 
             int lastRowIndex;
-            if (string.IsNullOrEmpty(groupColumnInput) && defaultValuesColumn == null)
+            if (string.IsNullOrEmpty(groupColumnInput) && defaultValuesColumn == null && aiValuesColumn == null)
             {
                 // No grouping or row expansion - write data as is
                 lastRowIndex = WriteDataWithoutGrouping(csvLines, csvColumnIndex, worksheet, headerRowIndex, token, depersonalize, applyReplacement);
             }
             else
             {
-                // Group data and/or expand rows based on DefaultValues
-                lastRowIndex = WriteDataWithGroupingAndExpansion(csvLines, csvColumnIndex, worksheet, headerRowIndex, token, depersonalize, applyReplacement);
+                // Group data and/or expand rows based on DefaultValues or AIValues
+                lastRowIndex = await WriteDataWithGroupingAndExpansion(csvLines, csvColumnIndex, worksheet, headerRowIndex, token, depersonalize, applyReplacement);
             }
 
             logger.LogInformation("Data rows written to the Excel file.");
@@ -558,7 +703,7 @@ namespace CsvConverter
             }
         }
 
-        private int WriteDataWithGroupingAndExpansion(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token, bool depersonalize, bool applyReplacement)
+        private async Task<int> WriteDataWithGroupingAndExpansion(string[] csvLines, Dictionary<string, int> csvColumnIndex, IXLWorksheet worksheet, int headerRowIndex, CancellationToken token, bool depersonalize, bool applyReplacement)
         {
             if (columnMappings == null) return headerRowIndex;
 
@@ -571,6 +716,26 @@ namespace CsvConverter
                     return headerRowIndex;
                 }
                 groupColumnCsvIndex = index;
+            }
+
+            // Helper function to build context from entire row
+            string BuildRowContext(string[] row)
+            {
+                var parts = new List<string>();
+                foreach (var kvp in csvColumnIndex)
+                {
+                    var columnName = kvp.Key;
+                    var columnIndex = kvp.Value;
+                    if (columnIndex < row.Length)
+                    {
+                        var value = row[columnIndex];
+                        if (!string.IsNullOrWhiteSpace(value))
+                        {
+                            parts.Add($"{columnName}: {value}");
+                        }
+                    }
+                }
+                return string.Join("; ", parts);
             }
 
             // Parse all data rows into groups (if grouping) or flat order
@@ -589,7 +754,7 @@ namespace CsvConverter
                     groupOrder.Add(groupKey);
                 }
 
-                var expandCount = defaultValuesColumn != null ? defaultValuesColumn.DefaultValues!.Count : 1;
+                var expandCount = aiValuesColumn != null ? aiValuesColumn.AIValues!.Count : defaultValuesColumn != null ? defaultValuesColumn.DefaultValues!.Count : 1;
                 groupedRows[groupKey].Add((csvRow, expandCount));
             }
 
@@ -624,8 +789,51 @@ namespace CsvConverter
                                     {
                                         value = ApplyDepersonalization(value);
                                     }
-                                    worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = value;
+                                    var cell = worksheet.Cell(outputRowIndex, mapping.OutputIndex);
+                                    cell.Value = value;
+                                    cell.Style.Alignment.WrapText = true;
+                                    cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
                                 }
+                            }
+                            else if (aiValuesColumn != null && mapping == aiValuesColumn)
+                            {
+                                var prompt = aiValuesColumn.AIValues![partIndex];
+                                // Enhance prompt with context from the entire row
+                                var rowContext = BuildRowContext(csvRow);
+                                if (!string.IsNullOrWhiteSpace(rowContext))
+                                {
+                                    prompt = $"{prompt}. Контекст: {rowContext}";
+                                    logger.LogInformation($"Enhanced AI prompt with full row context: '{prompt}'");
+                                }
+                                string value;
+                                if (aiProvider != null)
+                                {
+                                    try
+                                    {
+                                        value = await aiProvider.GenerateAsync(prompt, token);
+                                        logger.LogInformation($"AI generation succeeded for prompt '{prompt}' -> '{value.Substring(0, Math.Min(value.Length, 100))}...'");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        logger.LogError($"AI generation failed for prompt '{prompt}': {ex.Message}. Using prompt text instead.");
+                                        value = prompt;
+                                    }
+                                }
+                                else
+                                {
+                                    logger.LogWarning($"AIProvider is null. Using prompt text instead of AI response: '{prompt}'");
+                                    value = prompt;
+                                }
+                                
+                                if (applyReplacement)
+                                {
+                                    value = ApplyReplacement(value);
+                                }
+                                if (depersonalize)
+                                {
+                                    value = ApplyDepersonalization(value);
+                                }
+                                worksheet.Cell(outputRowIndex, mapping.OutputIndex).Value = value;
                             }
                             else if (defaultValuesColumn != null && mapping == defaultValuesColumn)
                             {
@@ -683,6 +891,11 @@ namespace CsvConverter
                     {
                         foreach (var mapping in columnMappings)
                         {
+                            if (aiValuesColumn != null && mapping == aiValuesColumn)
+                            {
+                                continue;
+                            }
+
                             if (defaultValuesColumn != null && mapping == defaultValuesColumn)
                             {
                                 continue;
@@ -725,6 +938,12 @@ namespace CsvConverter
                 logger.LogInformation($"Merged {groupMergeRanges.Count} cell ranges for group column");
             }
 
+            // Auto-adjust row heights for all data rows to fit AI responses
+            if (outputRowIndex - 1 > headerRowIndex)
+            {
+                worksheet.Rows(headerRowIndex + 1, outputRowIndex - 1).AdjustToContents();
+            }
+
             return Math.Max(headerRowIndex, outputRowIndex - 1);
         }
 
@@ -747,6 +966,26 @@ namespace CsvConverter
                 }
 
                 logger.LogInformation($"Loaded YAML configuration with {config.Columns?.Count ?? 0} columns from {yamlFilePath}");
+                
+                // Log AI configuration details
+                if (config.AI != null)
+                {
+                    logger.LogError($"AI configuration count: {config.AI.Count}");
+                    if (config.AI.Count > 0)
+                    {
+                        var aiConfig = config.AI.First();
+                        logger.LogError($"AI configuration loaded: Name='{aiConfig.Name}', URL='{aiConfig.Url}', Model='{aiConfig.Model}', TimeoutSeconds={aiConfig.TimeoutSeconds}");
+                    }
+                    else
+                    {
+                        logger.LogError("AI configuration list is empty.");
+                    }
+                }
+                else
+                {
+                    logger.LogError("AI configuration is null in YAML file.");
+                }
+                
                 return config;
             }
             catch (Exception ex)

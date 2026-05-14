@@ -43,6 +43,14 @@
         public string? OutputSuffix { get; set; } = "_personalized";
     }
 
+    public class AIConfig
+    {
+        public string? Url { get; set; }
+        public string? Name { get; set; }
+        public string? Model { get; set; } = "llama2"; // Default model
+        public int TimeoutSeconds { get; set; } = 120; // Default timeout for AI requests
+    }
+
     public class MappingConfig
     {
         public string? Caption { get; set; }
@@ -53,6 +61,7 @@
         public DepersonalizationConfig? Depersonalization { get; set; }
         public ReplacementConfig? Replacement { get; set; }
         public PersonalizationConfig? Personalization { get; set; }
+        public List<AIConfig>? AI { get; set; }
         public List<ColumnMapping> Columns { get; set; } = new List<ColumnMapping>();
     }
 }
